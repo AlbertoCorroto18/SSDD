@@ -1,0 +1,18 @@
+syntax = "proto3";        // Usamos la versión 3 del lenguaje protobuf
+
+// ------------------------------------------------------------
+// Mensaje Reading (una lectura de sensor)
+// ------------------------------------------------------------
+message Reading {
+  uint32 Id = 1;          // Identificador único del sensor
+  SensorType type = 2;    // Tipo de sensor (temperatura, humedad, etc.)
+  float value = 3;        // Valor medido (ej. 23.5)
+  string unit = 4;        // Unidad (ej. °C, %, kg/m3)
+
+  // Enumeración de tipos de sensores posibles
+  enum SensorType {
+    TEMPERATURE = 0;
+    HUMIDITY = 1;
+    PRESSURE = 2;
+  }
+}
