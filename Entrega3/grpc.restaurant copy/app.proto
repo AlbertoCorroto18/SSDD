@@ -1,0 +1,69 @@
+syntax = "proto3";
+package restaurant;
+
+// ----- Mensajes -----
+
+// Solicitud para crear una reserva
+message MakeReservationRequest {
+  string customer_name = 1;    // Nombre del cliente
+  uint32 party_size    = 2;    // Número de comensales
+  string datetime_iso  = 3;    // Fecha/hora en ISO-8601 (ej: 2025-10-16T20:30)
+}
+
+// Respuesta al crear una reserva
+message MakeReservationReply {
+  string reservation_id = 1;   // ID único de la reserva
+  string status         = 2;   // "CONFIRMED" o "REJECTED"
+  string message        = 3;   // Texto informativo
+}
+
+// Solicitud para obtener una reserva por ID
+message GetReservationRequest {
+  string reservation_id = 1;
+}
+
+// Representación de una reserva
+message Reservation {
+  string reservation_id = 1;
+  string customer_name  = 2;
+  uint32 party_size     = 3;
+  string datetime_iso   = 4;
+  string status         = 5;   // "CONFIRMED" o "CANCELLED"
+}
+
+// Respuesta al consultar una reserva
+message GetReservationReply {
+  bool found        = 1;
+  Reservation data  = 2;
+  string message    = 3;
+}
+
+// Solicitud para cancelar una reserva
+message CancelReservationRequest {
+  string reservation_id = 1;
+}
+
+// Respuesta al cancelar una reserva
+message CancelReservationReply {
+  bool success   = 1;
+  string message = 2;
+}
+
+// Solicitud para listar reservas (opcionalmente por fecha)
+message ListReservationsRequest {
+  string date_iso = 1;   // Opcional: "2025-10-16" (si vacío, lista todas)
+}
+
+// Respuesta al listar reservas
+message ListReservationsReply {
+  repeated Reservation reservations = 1;
+}
+
+// ----- Servicio -----
+
+service RestaurantService {
+  rpc MakeReservation (MakeReservationRequest) returns (MakeReservationReply);
+  rpc GetReservation  (GetReservationRequest)  returns (GetReservationReply);
+  rpc CancelReservation (CancelReservationRequest) returns (CancelReservationReply);
+  rpc ListReservations (ListReservationsRequest) returns (ListReservationsReply);
+}

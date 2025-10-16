@@ -1,0 +1,25 @@
+syntax = "proto3";
+package math;
+
+// ---------------------
+// Mensajes
+// ---------------------
+
+// Petición: contiene la lista de números a operar
+message Request {
+  repeated int32 numbers = 1;   // Lista de enteros
+}
+
+// Respuesta: devuelve el resultado de la operación
+message Reply {
+  int32 result = 1;
+  string operation = 2;         // "add" o "multiply"
+}
+
+// ---------------------
+// Servicio gRPC
+// ---------------------
+service MathService {
+  rpc Add (Request) returns (Reply);        // Suma los números
+  rpc Multiply (Request) returns (Reply);   // Multiplica los números
+}

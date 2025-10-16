@@ -1,0 +1,16 @@
+syntax = "proto3";          // Define la versión del lenguaje de Protobuf
+
+package hello;              // Nombre lógico del paquete
+
+// Definición del servicio remoto Hello
+service Hello {
+   rpc write (PrintRequest) returns (PrintReply) {}  // Método remoto "write"
+}
+
+// Mensaje de solicitud (enviado por el cliente)
+message PrintRequest {
+  string message = 1;       // Campo con el texto a enviar al servidor
+}
+
+// Mensaje de respuesta (devuelto por el servidor)
+message PrintReply {}
