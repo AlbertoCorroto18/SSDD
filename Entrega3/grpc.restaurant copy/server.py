@@ -1,123 +1,159 @@
 #!/usr/bin/env python3
-# Servidor gRPC para un sistema simple de reservas de restaurante.
-# Mantiene reservas en memoria (diccionario) para la demo.
+# ------------------------------------------------------------
+# Servidor gRPC para gestionar reservas de restaurante.
+# Expone varios métodos RPC:
+#   - makeReservation: crea una reserva nueva
+#   - checkReservation: consulta una reserva existente
+#   - cancelReservation: elimina una reserva por ID
+#   - listReservations: muestra todas las reservas almacenadas
+# ------------------------------------------------------------
 
-import time
-import uuid
-from concurrent import futures
+import random                         # Para generar IDs aleatorios de reserva
+import grpc                           # Librería principal gRPC
+from concurrent import futures         # Para concurrencia en el servidor
+from google.protobuf import empty_pb2  # Tipo vacío estándar de Google Protobuf
 
-import grpc
-
+# Módulos generados por grpc_tools a partir de app.proto
 import app_pb2
 import app_pb2_grpc
 
 
-class ReservationStore:
-    """Almacén en memoria de reservas (demo)."""
+# ------------------------------------------------------------
+# Clase que implementa el servicio gRPC definido en app.proto
+# ------------------------------------------------------------
+class ReservationsService(app_pb2_grpc.ReservationsServicer):
+    """
+    Implementación de los métodos definidos en el servicio 'Reservations'
+    (ver app.proto). Mantiene las reservas en un diccionario en memoria:
+    { id_reserva : objeto Reservation }
+    """
+
     def __init__(self):
-        self._data = {}  # reservation_id -> dict
+        # Diccionario que almacena todas las reservas (simula una BD)
+        self.reservations = {}
 
-    def create(self, customer_name: str, party_size: int, datetime_iso: str):
-        # Aquí podrías verificar disponibilidad, solapes, aforo, etc.
-        reservation_id = str(uuid.uuid4())[:8]
-        record = {
-            "reservation_id": reservation_id,
-            "customer_name": customer_name,
-            "party_size": party_size,
-            "datetime_iso": datetime_iso,
-            "status": "CONFIRMED",
-        }
-        self._data[reservation_id] = record
-        return record
+    # --------------------------------------------------------
+    # Métodos auxiliares privados
+    # --------------------------------------------------------
 
-    def get(self, reservation_id: str):
-        return self._data.get(reservation_id)
-
-    def cancel(self, reservation_id: str):
-        rec = self._data.get(reservation_id)
-        if not rec:
-            return False, "Reservation not found"
-        if rec["status"] == "CANCELLED":
-            return False, "Reservation already cancelled"
-        rec["status"] = "CANCELLED"
-        return True, "Reservation cancelled"
-
-    def list_all(self, date_iso: str | None = None):
-        if not date_iso:
-            return list(self._data.values())
-        # Filtra por fecha "YYYY-MM-DD" al inicio de datetime_iso
-        return [r for r in self._data.values() if r["datetime_iso"].startswith(date_iso)]
-
-
-class RestaurantService(app_pb2_grpc.RestaurantServiceServicer):
-    def __init__(self, store: ReservationStore):
-        self.store = store
-
-    def MakeReservation(self, request, context):
-        # request: MakeReservationRequest
-        if not request.customer_name or request.party_size == 0 or not request.datetime_iso:
-            return app_pb2.MakeReservationReply(
-                reservation_id="",
-                status="REJECTED",
-                message="Missing required fields (customer_name, party_size, datetime_iso).",
+    def _get_or_404(self, id, context):
+        """
+        Comprueba si existe la reserva con el ID dado.
+        Si no existe, aborta la RPC con código NOT_FOUND.
+        """
+        if not id:
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                'Missing reservation ID'
             )
-        rec = self.store.create(request.customer_name, request.party_size, request.datetime_iso)
-        return app_pb2.MakeReservationReply(
-            reservation_id=rec["reservation_id"],
-            status=rec["status"],
-            message=f"Reservation created for {rec['customer_name']} at {rec['datetime_iso']}",
+
+        if id not in self.reservations:
+            context.abort(
+                grpc.StatusCode.NOT_FOUND,
+                'Reservation not found'
+            )
+
+    def _validate_new_reservation(self, req, context):
+        """
+        Valida los datos de una nueva reserva.
+        Si falta algún campo obligatorio o hay valores inválidos,
+        se aborta la llamada con código INVALID_ARGUMENT.
+        """
+        missing = []
+        # Comprueba campos obligatorios (según el .proto)
+        if not req.HasField("time"):  missing.append("time")
+        if req.number_of_diners <= 0: missing.append("number_of_diners")
+        if not req.client_name:       missing.append("client_name")
+        if not req.contact_phone:     missing.append("contact_phone")
+
+        # Si hay errores, cancela la llamada RPC con un mensaje de error
+        if missing:
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"Missing or invalid fields: {', '.join(missing)}"
+            )
+
+    # --------------------------------------------------------
+    # Métodos RPC implementados (definidos en app.proto)
+    # --------------------------------------------------------
+
+    def makeReservation(self, request, context):
+        """
+        Crea una nueva reserva, valida los campos y la almacena en memoria.
+        """
+        # Verifica que los campos sean válidos
+        self._validate_new_reservation(request, context)
+
+        # Crea un objeto Reservation con los datos recibidos
+        reservation = app_pb2.Reservation(
+            id = random.randint(10000, 99999),  # ID único aleatorio
+            time = request.time,
+            number_of_diners = request.number_of_diners,
+            client_name = request.client_name,
+            contact_phone = request.contact_phone
         )
 
-    def GetReservation(self, request, context):
-        rec = self.store.get(request.reservation_id)
-        if not rec:
-            return app_pb2.GetReservationReply(found=False, message="Reservation not found")
-        return app_pb2.GetReservationReply(
-            found=True,
-            data=app_pb2.Reservation(
-                reservation_id=rec["reservation_id"],
-                customer_name=rec["customer_name"],
-                party_size=rec["party_size"],
-                datetime_iso=rec["datetime_iso"],
-                status=rec["status"],
-            ),
-            message="OK",
+        # Guarda la reserva en el "diccionario de base de datos"
+        self.reservations[reservation.id] = reservation
+
+        # Muestra por consola (solo informativo)
+        print(f'{context.peer()} :: Make {reservation.id}')
+
+        # Devuelve la reserva completa (incluyendo el ID generado)
+        return reservation
+
+
+    def checkReservation(self, request, context):
+        """
+        Busca una reserva por ID y la devuelve.
+        """
+        self._get_or_404(request.id, context)  # Lanza error si no existe
+        print(f'{context.peer()} :: Check {request.id}')
+        return self.reservations[request.id]
+
+
+    def cancelReservation(self, request, context):
+        """
+        Cancela (elimina) una reserva existente.
+        """
+        self._get_or_404(request.id, context)
+        del self.reservations[request.id]   # Borra del diccionario
+        print(f'{context.peer()} :: Cancel {request.id}')
+        # Devuelve un mensaje vacío (Empty) como confirmación
+        return empty_pb2.Empty()
+
+
+    def listReservations(self, _, context):
+        """
+        Devuelve una lista de todas las reservas almacenadas.
+        """
+        print(f'{context.peer()} :: List')
+        return app_pb2.ReservationsList(
+            reservations = list(self.reservations.values())
         )
 
-    def CancelReservation(self, request, context):
-        ok, msg = self.store.cancel(request.reservation_id)
-        return app_pb2.CancelReservationReply(success=ok, message=msg)
 
-    def ListReservations(self, request, context):
-        items = self.store.list_all(request.date_iso or "")
-        return app_pb2.ListReservationsReply(
-            reservations=[
-                app_pb2.Reservation(
-                    reservation_id=r["reservation_id"],
-                    customer_name=r["customer_name"],
-                    party_size=r["party_size"],
-                    datetime_iso=r["datetime_iso"],
-                    status=r["status"],
-                )
-                for r in items
-            ]
-        )
+# ------------------------------------------------------------
+# Arranque del servidor gRPC
+# ------------------------------------------------------------
+print("Bootstrapping gRPC server...")
 
+# Crea el servidor gRPC con hasta 10 hilos simultáneos
+server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
 
-def serve(host: str = "[::]:50051"):
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    store = ReservationStore()
-    app_pb2_grpc.add_RestaurantServiceServicer_to_server(RestaurantService(store), server)
-    server.add_insecure_port(host)
-    server.start()
-    print(f"Restaurant gRPC server listening on {host}")
-    try:
-        while True:
-            time.sleep(86400)
-    except KeyboardInterrupt:
-        print("Stopping server...")
-        server.stop(0)
+# Registra la implementación del servicio Reservations
+app_pb2_grpc.add_ReservationsServicer_to_server(ReservationsService(), server)
 
+# Asigna el puerto 10001 (escucha IPv4 e IPv6)
+server.add_insecure_port('[::]:10001')
 
-if __name__ == "__main__":
-    serve()
+# Inicia el servidor
+server.start()
+print(f'Server started...')
+
+# Mantiene el servidor activo hasta interrupción manual
+try:
+    server.wait_for_termination()
+except KeyboardInterrupt:
+    print("Stopping server...")
+    server.stop(0)

@@ -1,23 +1,27 @@
-import java.rmi.registry.LocateRegistry;
-import java.rmi.registry.Registry;
+// ------------------------------------------------------------
+// Cliente RMI.
+// Busca el objeto remoto registrado y ejecuta su método "sayHello".
+// ------------------------------------------------------------
+
+import java.rmi.*;  // Para Naming.lookup y manejo de excepciones RMI
 
 public class Client {
-    private Client() {}
-
-    public static void main(String[] args) {
+    public static void main(String args[]) {
         try {
-            // Localiza el registro RMI (binder) en localhost
-            Registry registry = LocateRegistry.getRegistry(null);
+            // Busca el objeto remoto en el registro RMI usando el nombre "Hello"
+            // El prefijo "rmi://localhost/Hello" indica que se conecta al registro
+            // local (puerto 1099 por defecto)
+            Hello obj = (Hello) Naming.lookup("rmi://localhost/Hello");
 
-            // Obtiene la referencia remota al objeto "Hello"
-            Hello stub = (Hello) registry.lookup("Hello");
+            // Invoca el método remoto 'sayHello' (ejecutado en el servidor)
+            String message = obj.sayHello();
 
-            // Llama al método remoto y muestra el resultado
-            String response = stub.sayHello();
-            System.out.println("response: " + response);
+            // Muestra la respuesta devuelta por el servidor
+            System.out.println("Respuesta del servidor: " + message);
 
         } catch (Exception e) {
-            System.err.println("Client exception: " + e.toString());
+            // Manejo de errores de red o registro
+            System.out.println("Error en el cliente RMI: " + e.getMessage());
             e.printStackTrace();
         }
     }

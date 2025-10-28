@@ -1,25 +1,24 @@
+// ------------------------------------------------------------
+// Definición del servicio gRPC Math
+// ------------------------------------------------------------
 syntax = "proto3";
-package math;
 
-// ---------------------
-// Mensajes
-// ---------------------
+service Math {
+    // RPC 1: suma todos los números recibidos
+    rpc add (Request) returns (Response);
+    // RPC 2: multiplica todos los números recibidos
+    rpc multiply (Request) returns (Response);
+}
 
-// Petición: contiene la lista de números a operar
+// ------------------------------------------------------------
+// Mensajes intercambiados entre cliente y servidor
+// ------------------------------------------------------------
 message Request {
-  repeated int32 numbers = 1;   // Lista de enteros
+    // Campo repetido → lista de enteros
+    repeated int32 numbers = 2;
 }
 
-// Respuesta: devuelve el resultado de la operación
-message Reply {
-  int32 result = 1;
-  string operation = 2;         // "add" o "multiply"
-}
-
-// ---------------------
-// Servicio gRPC
-// ---------------------
-service MathService {
-  rpc Add (Request) returns (Reply);        // Suma los números
-  rpc Multiply (Request) returns (Reply);   // Multiplica los números
+message Response {
+    // Resultado de la operación
+    int64 result = 1;
 }

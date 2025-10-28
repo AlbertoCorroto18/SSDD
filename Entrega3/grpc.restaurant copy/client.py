@@ -1,73 +1,128 @@
 #!/usr/bin/env python3
-# Cliente gRPC de ejemplo para el sistema de reservas.
-# Demuestra crear, consultar, listar y cancelar reservas.
+# ------------------------------------------------------------
+# Cliente gRPC para el sistema de reservas.
+# Permite crear, consultar, eliminar y listar reservas usando
+# subcomandos de línea de comandos (argparse).
+# ------------------------------------------------------------
 
 import sys
+import random
+import argparse
 import grpc
+from datetime import datetime, timezone
+from google.protobuf import empty_pb2
 
+# Módulos generados
 import app_pb2
 import app_pb2_grpc
 
 
-def run(host: str = "localhost:50051"):
-    # Crea canal y stub del servicio
-    with grpc.insecure_channel(host) as channel:
-        stub = app_pb2_grpc.RestaurantServiceStub(channel)
+# ------------------------------------------------------------
+# Clase que encapsula las llamadas RPC al servidor
+# ------------------------------------------------------------
+class ReservationClient:
+    def __init__(self, stub):
+        # El stub es el proxy gRPC del servicio remoto
+        self.stub = stub
 
-        # 1) Crear una reserva
-        name = "Alice"
-        size = 2
-        when = "2025-10-16T20:30"
-        if len(sys.argv) >= 4:
-            name, size, when = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+    def call_remote(self, func, request):
+        """
+        Función auxiliar para ejecutar un método remoto
+        y capturar los posibles errores de red o validación.
+        """
+        try:
+            response = func(request)
+        except grpc.RpcError as e:
+            print(f'Error: {e.code().name} - {e.details()}')
+            sys.exit(1)
+        return response
 
-        print(f"[MakeReservation] name={name}, party_size={size}, datetime={when}")
-        make_res = stub.MakeReservation(app_pb2.MakeReservationRequest(
-            customer_name=name,
-            party_size=size,
-            datetime_iso=when
-        ))
-        print("→ reply:", make_res)
+    # --------------------------------------------------------
+    # Métodos cliente → equivalentes a las operaciones del servicio
+    # --------------------------------------------------------
 
-        if make_res.status != "CONFIRMED":
-            print("Reservation rejected:", make_res.message)
-            return
+    def makeReservation(self):
+        """
+        Crea una reserva nueva con datos aleatorios de ejemplo.
+        """
+        request = app_pb2.NewReservationRequest(
+            number_of_diners = random.randint(1, 10),
+            client_name = 'John Doe',
+            contact_phone = '555-555-555'
+        )
+        # Asigna la hora actual como timestamp
+        request.time.FromDatetime(datetime.now(tz=timezone.utc))
 
-        res_id = make_res.reservation_id
+        # Llama al servidor para crear la reserva
+        try:
+            response = self.stub.makeReservation(request)
+        except grpc.RpcError as e:
+            print(f'Error: {e.code().name} - {e.details()}')
+            sys.exit(1)
 
-        # 2) Consultar la reserva creada
-        print(f"\n[GetReservation] id={res_id}")
-        get_res = stub.GetReservation(app_pb2.GetReservationRequest(reservation_id=res_id))
-        print("→ reply:", get_res)
+        print(response)  # Muestra la reserva devuelta (con ID asignado)
 
-        # 3) Listar reservas (todas)
-        print("\n[ListReservations] all")
-        list_all = stub.ListReservations(app_pb2.ListReservationsRequest())
-        for r in list_all.reservations:
-            print(f"  - {r.reservation_id} | {r.customer_name} | {r.party_size} | {r.datetime_iso} | {r.status}")
+    def checkReservation(self, id):
+        """
+        Consulta una reserva concreta por ID.
+        """
+        try:
+            response = self.stub.checkReservation(
+                app_pb2.ReservationIdRequest(id=int(id))
+            )
+        except grpc.RpcError as e:
+            print(f'Error: {e.code().name} - {e.details()}')
+            sys.exit(1)
+        print(response)
 
-        # 4) Listar reservas por fecha (YYYY-MM-DD)
-        date = when[:10]
-        print(f"\n[ListReservations] date={date}")
-        list_day = stub.ListReservations(app_pb2.ListReservationsRequest(date_iso=date))
-        for r in list_day.reservations:
-            print(f"  - {r.reservation_id} | {r.customer_name} | {r.party_size} | {r.datetime_iso} | {r.status}")
+    def cancelReservation(self, id):
+        """
+        Cancela una reserva (la elimina del servidor).
+        """
+        try:
+            response = self.stub.cancelReservation(
+                app_pb2.ReservationIdRequest(id=int(id))
+            )
+        except grpc.RpcError as e:
+            print(f'Error: {e.code().name} - {e.details()}')
+            sys.exit(1)
+        print('Reservation cancelled')
 
-        # 5) Cancelar la reserva
-        print(f"\n[CancelReservation] id={res_id}")
-        cancel_res = stub.CancelReservation(app_pb2.CancelReservationRequest(reservation_id=res_id))
-        print("→ reply:", cancel_res)
-
-        # 6) Volver a consultar para ver el estado CANCELLED
-        print(f"\n[GetReservation] id={res_id} (after cancel)")
-        get_res2 = stub.GetReservation(app_pb2.GetReservationRequest(reservation_id=res_id))
-        print("→ reply:", get_res2)
+    def listReservations(self):
+        """
+        Muestra todas las reservas activas en el servidor.
+        """
+        response = self.stub.listReservations(empty_pb2.Empty())
+        for reservation in response.reservations:
+            print(reservation)
 
 
-if __name__ == "__main__":
-    # Permite pasar host por argv[4] opcionalmente
-    # Ej: python client.py Bob 4 2025-12-31T22:00 localhost:50051
-    host = "localhost:50051"
-    if len(sys.argv) >= 5:
-        host = sys.argv[4]
-    run(host)
+# ------------------------------------------------------------
+# Argumentos de línea de comandos (modo consola)
+# ------------------------------------------------------------
+parser = argparse.ArgumentParser()
+parser.add_argument('server', type=str, help="Dirección del servidor gRPC (host:port)")
+parser.add_argument('-m', '--make', action='store_true', help="Crear reserva nueva")
+parser.add_argument('-c', '--check', type=str, help="Consultar reserva por ID")
+parser.add_argument('-r', '--remove', type=str, help="Cancelar reserva por ID")
+parser.add_argument('-l', '--list', action='store_true', help="Listar todas las reservas")
+args = parser.parse_args()
+
+# ------------------------------------------------------------
+# Creación del canal y stub
+# ------------------------------------------------------------
+channel = grpc.insecure_channel(args.server)
+stub = app_pb2_grpc.ReservationsStub(channel)
+client = ReservationClient(stub)
+
+# ------------------------------------------------------------
+# Lógica principal: elige la operación según el argumento
+# ------------------------------------------------------------
+if args.make:
+    client.makeReservation()
+elif args.check:
+    client.checkReservation(args.check)
+elif args.remove:
+    client.cancelReservation(args.remove)
+else:
+    client.listReservations()
